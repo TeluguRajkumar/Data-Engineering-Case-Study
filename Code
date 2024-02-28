@@ -1,0 +1,93 @@
+import json
+import pandas as pd
+from fastavro import reader
+from google.cloud import bigquery
+from google.cloud.bigquery import LoadJobConfig
+from google.cloud.bigquery.schema import SchemaField
+
+# Data Ingestion
+def ingest_ad_impressions(file_path):
+    with open(file_path, 'r') as file:
+        for line in file:
+            impression = json.loads(line)
+            yield impression
+
+def ingest_clicks_conversions(file_path):
+    df = pd.read_csv(file_path)
+    for row in df.itertuples():
+        yield row._asdict()
+
+def ingest_bid_requests(file_path):
+    with open(file_path, 'rb') as file:
+        avro_reader = reader(file)
+        for record in avro_reader:
+            yield record
+
+# Data Processing
+def process_ad_impressions(impressions):
+    processed_impressions = []
+    for impression in impressions:
+        processed_impression = {
+            'ad_creative_id': impression['ad_creative_id'],
+            'user_id': impression['user_id'],
+            'timestamp': impression['timestamp'],
+            'website': impression['website']
+        }
+        processed_impressions.append(processed_impression)
+    return processed_impressions
+
+def process_clicks_conversions(clicks_conversions):
+    processed_clicks_conversions = []
+    for click_conversion in clicks_conversions:
+        processed_click_conversion = {
+            'event_timestamp': click_conversion.event_timestamp,
+            'user_id': click_conversion.user_id,
+            'ad_campaign_id': click_conversion.ad_campaign_id,
+            'conversion_type': click_conversion.conversion_type
+        }
+        processed_clicks_conversions.append(processed_click_conversion)
+    return processed_clicks_conversions
+
+def process_bid_requests(bid_requests):
+    processed_bid_requests = []
+    for bid_request in bid_requests:
+        processed_bid_request = {
+            'user_info': bid_request['user_info'],
+            'auction_details': bid_request['auction_details'],
+            'ad_targeting_criteria': bid_request['ad_targeting_criteria']
+        }
+        processed_bid_requests.append(processed_bid_request)
+    return processed_bid_requests
+
+# Data Storage and Query Performance
+def store_processed_data(processed_data, table_name):
+    client = bigquery.Client()
+    dataset_ref = client.dataset('advertisex_data')
+    table_ref = dataset_ref.table(table_name)
+    job_config = LoadJobConfig(
+        source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+        autodetect=True,
+        write_disposition=bigquery.WriteDisposition.WRITE_APPEND
+    )
+    job = client.load_table_from_json(processed_data, table_ref, job_config=job_config)
+    job.result()
+
+# Error Handling and Monitoring
+def monitor_data_quality(processed_data, table_name):
+    client = bigquery.Client()
+    dataset_ref = client.dataset('advertisex_data')
+    table_ref = dataset_ref.table(table_name)
+    query = f"SELECT COUNT(*) FROM `{table_ref}`"
+    query_job = client.query(query)
+    result = query_job.result()
+    row_count = result.to_dataframe().iloc[0]['f0_']
+    if row_count == 0:
+        print(f"Error: No data found in table {table_name}")
+    else:
+        print(f"Data quality check passed for table {table_name}")
+
+# Main
+def main():
+    # Data Ingestion
+    ad_impressions = ingest_ad_impressions('ad_impressions.json')
+   
